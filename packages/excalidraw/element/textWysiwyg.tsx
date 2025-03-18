@@ -1,55 +1,57 @@
+import {
+  actionResetZoom,
+  actionZoomIn,
+  actionZoomOut,
+} from "../actions/actionCanvas";
+import {
+  actionDecreaseFontSize,
+  actionIncreaseFontSize,
+} from "../actions/actionProperties";
+import { parseClipboard } from "../clipboard";
+import { CLASSES, POINTER_BUTTON } from "../constants";
 import { CODES, KEYS } from "../keys";
+import Scene from "../scene/Scene";
 import {
   isWritableElement,
   getFontString,
   getFontFamilyString,
   isTestEnv,
 } from "../utils";
-import Scene from "../scene/Scene";
+
 import {
-  isArrowElement,
-  isBoundToContainer,
-  isTextElement,
-} from "./typeChecks";
-import { CLASSES, isSafari, POINTER_BUTTON } from "../constants";
-import type {
-  ExcalidrawElement,
-  ExcalidrawLinearElement,
-  ExcalidrawTextElementWithContainer,
-  ExcalidrawTextElement,
-} from "./types";
-import type { AppState } from "../types";
+  originalContainerCache,
+  updateOriginalContainerCache,
+} from "./containerCache";
+import { LinearElementEditor } from "./linearElementEditor";
 import { bumpVersion, mutateElement } from "./mutateElement";
 import {
   getBoundTextElementId,
   getContainerElement,
   getTextElementAngle,
-  getTextWidth,
-  normalizeText,
   redrawTextBoundingBox,
-  wrapText,
   getBoundTextMaxHeight,
   getBoundTextMaxWidth,
   computeContainerDimensionForBoundText,
   computeBoundTextPosition,
   getBoundTextElement,
 } from "./textElement";
+import { getTextWidth } from "./textMeasurements";
+import { normalizeText } from "./textMeasurements";
+import { wrapText } from "./textWrapping";
 import {
-  actionDecreaseFontSize,
-  actionIncreaseFontSize,
-} from "../actions/actionProperties";
-import {
-  actionResetZoom,
-  actionZoomIn,
-  actionZoomOut,
-} from "../actions/actionCanvas";
+  isArrowElement,
+  isBoundToContainer,
+  isTextElement,
+} from "./typeChecks";
+
+import type {
+  ExcalidrawElement,
+  ExcalidrawLinearElement,
+  ExcalidrawTextElementWithContainer,
+  ExcalidrawTextElement,
+} from "./types";
 import type App from "../components/App";
-import { LinearElementEditor } from "./linearElementEditor";
-import { parseClipboard } from "../clipboard";
-import {
-  originalContainerCache,
-  updateOriginalContainerCache,
-} from "./containerCache";
+import type { AppState } from "../types";
 
 const getTransform = (
   width: number,
@@ -245,11 +247,6 @@ export const textWysiwyg = ({
 
       const font = getFontString(updatedTextElement);
 
-      // adding left and right padding buffer, so that browser does not cut the glyphs (does not work in Safari)
-      const padding = !isSafari
-        ? Math.ceil(updatedTextElement.fontSize / appState.zoom.value / 2)
-        : 0;
-
       // Make sure text editor height doesn't go beyond viewport
       const editorMaxHeight =
         (appState.height - viewportY) / appState.zoom.value;
@@ -259,7 +256,7 @@ export const textWysiwyg = ({
         lineHeight: updatedTextElement.lineHeight,
         width: `${width}px`,
         height: `${height}px`,
-        left: `${viewportX - padding}px`,
+        left: `${viewportX}px`,
         top: `${viewportY}px`,
         transform: getTransform(
           width,
@@ -269,7 +266,6 @@ export const textWysiwyg = ({
           maxWidth,
           editorMaxHeight,
         ),
-        padding: `0 ${padding}px`,
         textAlign,
         verticalAlign,
         color: updatedTextElement.strokeColor,
@@ -310,6 +306,7 @@ export const textWysiwyg = ({
     minHeight: "1em",
     backfaceVisibility: "hidden",
     margin: 0,
+    padding: 0,
     border: 0,
     outline: 0,
     resize: "none",
@@ -355,7 +352,7 @@ export const textWysiwyg = ({
           font,
           getBoundTextMaxWidth(container, boundTextElement),
         );
-        const width = getTextWidth(wrappedText, font, true);
+        const width = getTextWidth(wrappedText, font);
         editable.style.width = `${width}px`;
       }
     };

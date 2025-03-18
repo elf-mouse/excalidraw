@@ -11,6 +11,7 @@ import {
   THEME,
   DEFAULT_GRID_STEP,
 } from "./constants";
+
 import type { AppState, NormalizedZoomValue } from "./types";
 
 const defaultExportScale = EXPORT_SCALES.includes(devicePixelRatio)
@@ -84,6 +85,7 @@ export const getDefaultAppState = (): Omit<
     scrollX: 0,
     scrollY: 0,
     selectedElementIds: {},
+    hoveredElementIds: {},
     selectedGroupIds: {},
     selectedElementsAreBeingDragged: false,
     selectionElement: null,
@@ -210,6 +212,7 @@ const APP_STATE_STORAGE_CONF = (<
   scrollX: { browser: true, export: false, server: false },
   scrollY: { browser: true, export: false, server: false },
   selectedElementIds: { browser: true, export: false, server: false },
+  hoveredElementIds: { browser: false, export: false, server: false },
   selectedGroupIds: { browser: true, export: false, server: false },
   selectedElementsAreBeingDragged: {
     browser: false,

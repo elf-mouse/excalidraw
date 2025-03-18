@@ -1,3 +1,12 @@
+import { pointFrom, type LocalPoint } from "@excalidraw/math";
+
+import { elementOverlapsWithFrame, elementsAreInFrameBounds } from "../frame";
+import { KEYS } from "../keys";
+import { aabbForElement } from "../shapes";
+import { invariant, toBrandedType } from "../utils";
+
+import { bindLinearElement } from "./binding";
+import { updateElbowArrowPoints } from "./elbowArrow";
 import {
   HEADING_DOWN,
   HEADING_LEFT,
@@ -7,30 +16,26 @@ import {
   headingForPointFromElement,
   type Heading,
 } from "./heading";
-import { bindLinearElement } from "./binding";
 import { LinearElementEditor } from "./linearElementEditor";
-import { newArrowElement, newElement } from "./newElement";
-import type {
-  ElementsMap,
-  ExcalidrawBindableElement,
-  ExcalidrawElement,
-  ExcalidrawFlowchartNodeElement,
-  NonDeletedSceneElementsMap,
-  OrderedExcalidrawElement,
-} from "./types";
-import { KEYS } from "../keys";
-import type { AppState, PendingExcalidrawElements } from "../types";
 import { mutateElement } from "./mutateElement";
-import { elementOverlapsWithFrame, elementsAreInFrameBounds } from "../frame";
+import { newArrowElement, newElement } from "./newElement";
 import {
   isBindableElement,
   isElbowArrow,
   isFrameElement,
   isFlowchartNodeElement,
 } from "./typeChecks";
-import { invariant } from "../utils";
-import { pointFrom, type LocalPoint } from "../../math";
-import { aabbForElement } from "../shapes";
+import {
+  type ElementsMap,
+  type ExcalidrawBindableElement,
+  type ExcalidrawElement,
+  type ExcalidrawFlowchartNodeElement,
+  type NonDeletedSceneElementsMap,
+  type Ordered,
+  type OrderedExcalidrawElement,
+} from "./types";
+
+import type { AppState, PendingExcalidrawElements } from "../types";
 
 type LinkDirection = "up" | "right" | "down" | "left";
 
@@ -254,6 +259,9 @@ const addNewNode = (
     backgroundColor: element.backgroundColor,
     strokeColor: element.strokeColor,
     strokeWidth: element.strokeWidth,
+    opacity: element.opacity,
+    fillStyle: element.fillStyle,
+    strokeStyle: element.strokeStyle,
   });
 
   invariant(
@@ -329,6 +337,9 @@ export const addNewNodes = (
       backgroundColor: startNode.backgroundColor,
       strokeColor: startNode.strokeColor,
       strokeWidth: startNode.strokeWidth,
+      opacity: startNode.opacity,
+      fillStyle: startNode.fillStyle,
+      strokeStyle: startNode.strokeStyle,
     });
 
     invariant(
@@ -416,11 +427,13 @@ const createBindingArrow = (
     type: "arrow",
     x: startX,
     y: startY,
-    startArrowhead: appState.currentItemStartArrowhead,
+    startArrowhead: null,
     endArrowhead: appState.currentItemEndArrowhead,
-    strokeColor: appState.currentItemStrokeColor,
-    strokeStyle: appState.currentItemStrokeStyle,
-    strokeWidth: appState.currentItemStrokeWidth,
+    strokeColor: startBindingElement.strokeColor,
+    strokeStyle: startBindingElement.strokeStyle,
+    strokeWidth: startBindingElement.strokeWidth,
+    opacity: startBindingElement.opacity,
+    roughness: startBindingElement.roughness,
     points: [pointFrom(0, 0), pointFrom(endX, endY)],
     elbowed: true,
   });
@@ -452,22 +465,30 @@ const createBindingArrow = (
     bindingArrow as OrderedExcalidrawElement,
   );
 
-  LinearElementEditor.movePoints(
-    bindingArrow,
-    [
-      {
-        index: 1,
-        point: bindingArrow.points[1],
-      },
-    ],
-    elementsMap as NonDeletedSceneElementsMap,
-    undefined,
+  LinearElementEditor.movePoints(bindingArrow, [
     {
-      changedElements,
+      index: 1,
+      point: bindingArrow.points[1],
     },
+  ]);
+
+  const update = updateElbowArrowPoints(
+    bindingArrow,
+    toBrandedType<NonDeletedSceneElementsMap>(
+      new Map([
+        ...elementsMap.entries(),
+        [startBindingElement.id, startBindingElement],
+        [endBindingElement.id, endBindingElement],
+        [bindingArrow.id, bindingArrow],
+      ] as [string, Ordered<ExcalidrawElement>][]),
+    ),
+    { points: bindingArrow.points },
   );
 
-  return bindingArrow;
+  return {
+    ...bindingArrow,
+    ...update,
+  };
 };
 
 export class FlowChartNavigator {

@@ -1,20 +1,5 @@
-import { loadLibraryFromBlob } from "./blob";
-import type {
-  LibraryItems,
-  LibraryItem,
-  ExcalidrawImperativeAPI,
-  LibraryItemsSource,
-  LibraryItems_anyVersion,
-} from "../types";
-import { restoreLibraryItems } from "./restore";
-import type App from "../components/App";
-import { atom } from "jotai";
-import { jotaiStore } from "../jotai";
-import type { ExcalidrawElement } from "../element/types";
-import { getCommonBoundingBox } from "../element/bounds";
-import { AbortError } from "../errors";
-import { t } from "../i18n";
 import { useEffect, useRef } from "react";
+
 import {
   URL_HASH_KEYS,
   URL_QUERY_KEYS,
@@ -23,7 +8,14 @@ import {
   DEFAULT_SIDEBAR,
   LIBRARY_SIDEBAR_TAB,
 } from "../constants";
+import { atom, editorJotaiStore } from "../editor-jotai";
+import { hashElementsVersion, hashString } from "../element";
+import { getCommonBoundingBox } from "../element/bounds";
+import { Emitter } from "../emitter";
+import { AbortError } from "../errors";
 import { libraryItemSvgsCache } from "../hooks/useLibraryItemSvg";
+import { t } from "../i18n";
+import { Queue } from "../queue";
 import {
   arrayToMap,
   cloneJSON,
@@ -31,10 +23,34 @@ import {
   promiseTry,
   resolvablePromise,
 } from "../utils";
+
+import { loadLibraryFromBlob } from "./blob";
+import { restoreLibraryItems } from "./restore";
+import { toValidURL } from "./url";
+
+import type App from "../components/App";
+import type { ExcalidrawElement } from "../element/types";
+import type {
+  LibraryItems,
+  LibraryItem,
+  ExcalidrawImperativeAPI,
+  LibraryItemsSource,
+  LibraryItems_anyVersion,
+} from "../types";
 import type { MaybePromise } from "../utility-types";
-import { Emitter } from "../emitter";
-import { Queue } from "../queue";
-import { hashElementsVersion, hashString } from "../element";
+
+/**
+ * format: hostname or hostname/pathname
+ *
+ * Both hostname and pathname are matched partially,
+ * hostname from the end, pathname from the start, with subdomain/path
+ * boundaries
+ **/
+const ALLOWED_LIBRARY_URLS = [
+  "excalidraw.com",
+  // when installing from github PRs
+  "raw.githubusercontent.com/excalidraw/excalidraw-libraries",
+];
 
 type LibraryUpdate = {
   /** deleted library items since last onLibraryChange event */
@@ -188,13 +204,13 @@ class Library {
 
   private notifyListeners = () => {
     if (this.updateQueue.length > 0) {
-      jotaiStore.set(libraryItemsAtom, (s) => ({
+      editorJotaiStore.set(libraryItemsAtom, (s) => ({
         status: "loading",
         libraryItems: this.currLibraryItems,
         isInitialized: s.isInitialized,
       }));
     } else {
-      jotaiStore.set(libraryItemsAtom, {
+      editorJotaiStore.set(libraryItemsAtom, {
         status: "loaded",
         libraryItems: this.currLibraryItems,
         isInitialized: true,
@@ -222,7 +238,7 @@ class Library {
   destroy = () => {
     this.updateQueue = [];
     this.currLibraryItems = [];
-    jotaiStore.set(libraryItemSvgsCache, new Map());
+    editorJotaiStore.set(libraryItemSvgsCache, new Map());
     // TODO uncomment after/if we make jotai store scoped to each excal instance
     // jotaiStore.set(libraryItemsAtom, {
     //   status: "loading",
@@ -467,6 +483,39 @@ export const distributeLibraryItemsOnSquareGrid = (
   return resElements;
 };
 
+export const validateLibraryUrl = (
+  libraryUrl: string,
+  /**
+   * @returns `true` if the URL is valid, throws otherwise.
+   */
+  validator:
+    | ((libraryUrl: string) => boolean)
+    | string[] = ALLOWED_LIBRARY_URLS,
+): true => {
+  if (
+    typeof validator === "function"
+      ? validator(libraryUrl)
+      : validator.some((allowedUrlDef) => {
+          const allowedUrl = new URL(
+            `https://${allowedUrlDef.replace(/^https?:\/\//, "")}`,
+          );
+
+          const { hostname, pathname } = new URL(libraryUrl);
+
+          return (
+            new RegExp(`(^|\\.)${allowedUrl.hostname}$`).test(hostname) &&
+            new RegExp(
+              `^${allowedUrl.pathname.replace(/\/+$/, "")}(/+|$)`,
+            ).test(pathname)
+          );
+        })
+  ) {
+    return true;
+  }
+
+  throw new Error(`Invalid or disallowed library URL: "${libraryUrl}"`);
+};
+
 export const parseLibraryTokensFromUrl = () => {
   const libraryUrl =
     // current
@@ -608,6 +657,11 @@ const persistLibraryUpdate = async (
 export const useHandleLibrary = (
   opts: {
     excalidrawAPI: ExcalidrawImperativeAPI | null;
+    /**
+     * Return `true` if the library install url should be allowed.
+     * If not supplied, only the excalidraw.com base domain is allowed.
+     */
+    validateLibraryUrl?: (libraryUrl: string) => boolean;
   } & (
     | {
         /** @deprecated we recommend using `opts.adapter` instead */
@@ -650,7 +704,13 @@ export const useHandleLibrary = (
     }) => {
       const libraryPromise = new Promise<Blob>(async (resolve, reject) => {
         try {
-          const request = await fetch(decodeURIComponent(libraryUrl));
+          libraryUrl = decodeURIComponent(libraryUrl);
+
+          libraryUrl = toValidURL(libraryUrl);
+
+          validateLibraryUrl(libraryUrl, optsRef.current.validateLibraryUrl);
+
+          const request = await fetch(libraryUrl);
           const blob = await request.blob();
           resolve(blob);
         } catch (error: any) {
@@ -678,7 +738,12 @@ export const useHandleLibrary = (
           defaultStatus: "published",
           openLibraryMenu: true,
         });
-      } catch (error) {
+      } catch (error: any) {
+        excalidrawAPI.updateScene({
+          appState: {
+            errorMessage: error.message,
+          },
+        });
         throw error;
       } finally {
         if (window.location.hash.includes(URL_HASH_KEYS.addLibrary)) {

@@ -1,4 +1,5 @@
 import { arrayToMapWithIndex } from "../utils";
+
 import type { ExcalidrawElement } from "./types";
 
 const normalizeGroupElementOrder = (elements: readonly ExcalidrawElement[]) => {
@@ -116,8 +117,5 @@ const normalizeBoundElementsOrder = (
 export const normalizeElementOrder = (
   elements: readonly ExcalidrawElement[],
 ) => {
-  // console.time();
-  const ret = normalizeBoundElementsOrder(normalizeGroupElementOrder(elements));
-  // console.timeEnd();
-  return ret;
+  return normalizeBoundElementsOrder(normalizeGroupElementOrder(elements));
 };

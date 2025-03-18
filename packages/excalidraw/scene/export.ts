@@ -1,23 +1,6 @@
 import rough from "roughjs/bin/rough";
-import type {
-  ExcalidrawElement,
-  ExcalidrawFrameLikeElement,
-  ExcalidrawTextElement,
-  NonDeletedExcalidrawElement,
-  NonDeletedSceneElementsMap,
-} from "../element/types";
-import type { Bounds } from "../element/bounds";
-import { getCommonBounds, getElementAbsoluteCoords } from "../element/bounds";
-import { renderSceneToSvg } from "../renderer/staticSvgScene";
-import {
-  arrayToMap,
-  distance,
-  getFontString,
-  PromisePool,
-  promiseTry,
-  toBrandedType,
-} from "../utils";
-import type { AppState, BinaryFiles } from "../types";
+
+import { getDefaultAppState } from "../appState";
 import {
   DEFAULT_EXPORT_PADDING,
   FRAME_STYLE,
@@ -25,33 +8,42 @@ import {
   SVG_NS,
   THEME,
   THEME_FILTER,
-  FONT_FAMILY_FALLBACKS,
-  getFontFamilyFallbacks,
-  CJK_HAND_DRAWN_FALLBACK_FONT,
+  MIME_TYPES,
+  EXPORT_DATA_TYPES,
 } from "../constants";
-import { getDefaultAppState } from "../appState";
+import { base64ToString, decode, encode, stringToBase64 } from "../data/encode";
 import { serializeAsJSON } from "../data/json";
+import { newTextElement } from "../element";
+import { getCommonBounds, getElementAbsoluteCoords } from "../element/bounds";
 import {
   getInitializedImageElements,
   updateImageCache,
 } from "../element/image";
+import { newElementWith } from "../element/mutateElement";
+import { isFrameLikeElement } from "../element/typeChecks";
+import { Fonts } from "../fonts";
+import { syncInvalidIndices } from "../fractionalIndex";
 import {
   getElementsOverlappingFrame,
   getFrameLikeElements,
   getFrameLikeTitle,
   getRootElements,
 } from "../frame";
-import { newTextElement } from "../element";
-import { type Mutable } from "../utility-types";
-import { newElementWith } from "../element/mutateElement";
-import { isFrameLikeElement, isTextElement } from "../element/typeChecks";
-import type { RenderableElementsMap } from "./types";
-import { syncInvalidIndices } from "../fractionalIndex";
 import { renderStaticScene } from "../renderer/staticScene";
-import { Fonts } from "../fonts";
-import { containsCJK } from "../element/textElement";
+import { renderSceneToSvg } from "../renderer/staticSvgScene";
+import { type Mutable } from "../utility-types";
+import { arrayToMap, distance, getFontString, toBrandedType } from "../utils";
 
-const SVG_EXPORT_TAG = `<!-- svg-source:excalidraw -->`;
+import type { RenderableElementsMap } from "./types";
+import type { Bounds } from "../element/bounds";
+import type {
+  ExcalidrawElement,
+  ExcalidrawFrameLikeElement,
+  ExcalidrawTextElement,
+  NonDeletedExcalidrawElement,
+  NonDeletedSceneElementsMap,
+} from "../element/types";
+import type { AppState, BinaryFiles } from "../types";
 
 const truncateText = (element: ExcalidrawTextElement, maxWidth: number) => {
   if (element.width <= maxWidth) {
@@ -265,6 +257,13 @@ export const exportToCanvas = async (
   return canvas;
 };
 
+const createHTMLComment = (text: string) => {
+  // surrounding with spaces to maintain prettified consistency with previous
+  // iterations
+  // <!-- comment -->
+  return document.createComment(` ${text} `);
+};
+
 export const exportToSvg = async (
   elements: readonly NonDeletedExcalidrawElement[],
   appState: {
@@ -284,6 +283,7 @@ export const exportToSvg = async (
     renderEmbeddables?: boolean;
     exportingFrame?: ExcalidrawFrameLikeElement | null;
     skipInliningFonts?: true;
+    reuseImages?: boolean;
   },
 ): Promise<SVGSVGElement> => {
   const frameRendering = getFrameRenderingConfig(
@@ -312,33 +312,20 @@ export const exportToSvg = async (
     exportPadding = 0;
   }
 
-  let metadata = "";
-
-  // we need to serialize the "original" elements before we put them through
-  // the tempScene hack which duplicates and regenerates ids
-  if (exportEmbedScene) {
-    try {
-      metadata = await (
-        await import("../data/image")
-      ).encodeSvgMetadata({
-        // when embedding scene, we want to embed the origionally supplied
-        // elements which don't contain the temp frame labels.
-        // But it also requires that the exportToSvg is being supplied with
-        // only the elements that we're exporting, and no extra.
-        text: serializeAsJSON(elements, appState, files || {}, "local"),
-      });
-    } catch (error: any) {
-      console.error(error);
-    }
-  }
-
   const [minX, minY, width, height] = getCanvasSize(
     exportingFrame ? [exportingFrame] : getRootElements(elementsForRender),
     exportPadding,
   );
 
-  // initialize SVG root
+  const offsetX = -minX + exportPadding;
+  const offsetY = -minY + exportPadding;
+
+  // ---------------------------------------------------------------------------
+  // initialize SVG root element
+  // ---------------------------------------------------------------------------
+
   const svgRoot = document.createElementNS(SVG_NS, "svg");
+
   svgRoot.setAttribute("version", "1.1");
   svgRoot.setAttribute("xmlns", SVG_NS);
   svgRoot.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -348,50 +335,105 @@ export const exportToSvg = async (
     svgRoot.setAttribute("filter", THEME_FILTER);
   }
 
-  const offsetX = -minX + exportPadding;
-  const offsetY = -minY + exportPadding;
+  const defsElement = svgRoot.ownerDocument.createElementNS(SVG_NS, "defs");
+
+  const metadataElement = svgRoot.ownerDocument.createElementNS(
+    SVG_NS,
+    "metadata",
+  );
+
+  svgRoot.appendChild(createHTMLComment("svg-source:excalidraw"));
+  svgRoot.appendChild(metadataElement);
+  svgRoot.appendChild(defsElement);
+
+  // ---------------------------------------------------------------------------
+  // scene embed
+  // ---------------------------------------------------------------------------
+
+  // we need to serialize the "original" elements before we put them through
+  // the tempScene hack which duplicates and regenerates ids
+  if (exportEmbedScene) {
+    try {
+      encodeSvgBase64Payload({
+        metadataElement,
+        // when embedding scene, we want to embed the origionally supplied
+        // elements which don't contain the temp frame labels.
+        // But it also requires that the exportToSvg is being supplied with
+        // only the elements that we're exporting, and no extra.
+        payload: serializeAsJSON(elements, appState, files || {}, "local"),
+      });
+    } catch (error: any) {
+      console.error(error);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // frame clip paths
+  // ---------------------------------------------------------------------------
 
   const frameElements = getFrameLikeElements(elements);
 
-  let exportingFrameClipPath = "";
-  const elementsMap = arrayToMap(elements);
-  for (const frame of frameElements) {
-    const [x1, y1, x2, y2] = getElementAbsoluteCoords(frame, elementsMap);
-    const cx = (x2 - x1) / 2 - (frame.x - x1);
-    const cy = (y2 - y1) / 2 - (frame.y - y1);
+  if (frameElements.length) {
+    const elementsMap = arrayToMap(elements);
 
-    exportingFrameClipPath += `<clipPath id=${frame.id}>
-            <rect transform="translate(${frame.x + offsetX} ${
-      frame.y + offsetY
-    }) rotate(${frame.angle} ${cx} ${cy})"
-          width="${frame.width}"
-          height="${frame.height}"
-          ${
-            exportingFrame
-              ? ""
-              : `rx=${FRAME_STYLE.radius} ry=${FRAME_STYLE.radius}`
-          }
-          >
-          </rect>
-        </clipPath>`;
+    for (const frame of frameElements) {
+      const clipPath = svgRoot.ownerDocument.createElementNS(
+        SVG_NS,
+        "clipPath",
+      );
+
+      clipPath.setAttribute("id", frame.id);
+
+      const [x1, y1, x2, y2] = getElementAbsoluteCoords(frame, elementsMap);
+      const cx = (x2 - x1) / 2 - (frame.x - x1);
+      const cy = (y2 - y1) / 2 - (frame.y - y1);
+
+      const rect = svgRoot.ownerDocument.createElementNS(SVG_NS, "rect");
+      rect.setAttribute(
+        "transform",
+        `translate(${frame.x + offsetX} ${frame.y + offsetY}) rotate(${
+          frame.angle
+        } ${cx} ${cy})`,
+      );
+      rect.setAttribute("width", `${frame.width}`);
+      rect.setAttribute("height", `${frame.height}`);
+
+      if (!exportingFrame) {
+        rect.setAttribute("rx", `${FRAME_STYLE.radius}`);
+        rect.setAttribute("ry", `${FRAME_STYLE.radius}`);
+      }
+
+      clipPath.appendChild(rect);
+
+      defsElement.appendChild(clipPath);
+    }
   }
 
-  const fontFaces = opts?.skipInliningFonts ? [] : await getFontFaces(elements);
+  // ---------------------------------------------------------------------------
+  // inline font faces
+  // ---------------------------------------------------------------------------
+
+  const fontFaces = !opts?.skipInliningFonts
+    ? await Fonts.generateFontFaceDeclarations(elements)
+    : [];
+
   const delimiter = "\n      "; // 6 spaces
 
-  svgRoot.innerHTML = `
-  ${SVG_EXPORT_TAG}
-  ${metadata}
-  <defs>
-    <style class="style-fonts">${delimiter}${fontFaces.join(delimiter)}
-    </style>
-    ${exportingFrameClipPath}
-  </defs>
-  `;
+  const style = svgRoot.ownerDocument.createElementNS(SVG_NS, "style");
+  style.classList.add("style-fonts");
+  style.appendChild(
+    document.createTextNode(`${delimiter}${fontFaces.join(delimiter)}`),
+  );
+
+  defsElement.appendChild(style);
+
+  // ---------------------------------------------------------------------------
+  // background
+  // ---------------------------------------------------------------------------
 
   // render background rect
   if (appState.exportBackground && viewBackgroundColor) {
-    const rect = svgRoot.ownerDocument!.createElementNS(SVG_NS, "rect");
+    const rect = svgRoot.ownerDocument.createElementNS(SVG_NS, "rect");
     rect.setAttribute("x", "0");
     rect.setAttribute("y", "0");
     rect.setAttribute("width", `${width}`);
@@ -399,6 +441,10 @@ export const exportToSvg = async (
     rect.setAttribute("fill", viewBackgroundColor);
     svgRoot.appendChild(rect);
   }
+
+  // ---------------------------------------------------------------------------
+  // render elements
+  // ---------------------------------------------------------------------------
 
   const rsvg = rough.svg(svgRoot);
 
@@ -425,10 +471,68 @@ export const exportToSvg = async (
               .map((element) => [element.id, true]),
           )
         : new Map(),
+      reuseImages: opts?.reuseImages ?? true,
     },
   );
 
+  // ---------------------------------------------------------------------------
+
   return svgRoot;
+};
+
+export const encodeSvgBase64Payload = ({
+  payload,
+  metadataElement,
+}: {
+  payload: string;
+  metadataElement: SVGMetadataElement;
+}) => {
+  const base64 = stringToBase64(
+    JSON.stringify(encode({ text: payload })),
+    true /* is already byte string */,
+  );
+
+  metadataElement.appendChild(
+    createHTMLComment(`payload-type:${MIME_TYPES.excalidraw}`),
+  );
+  metadataElement.appendChild(createHTMLComment("payload-version:2"));
+  metadataElement.appendChild(createHTMLComment("payload-start"));
+  metadataElement.appendChild(document.createTextNode(base64));
+  metadataElement.appendChild(createHTMLComment("payload-end"));
+};
+
+export const decodeSvgBase64Payload = ({ svg }: { svg: string }) => {
+  if (svg.includes(`payload-type:${MIME_TYPES.excalidraw}`)) {
+    const match = svg.match(
+      /<!-- payload-start -->\s*(.+?)\s*<!-- payload-end -->/,
+    );
+    if (!match) {
+      throw new Error("INVALID");
+    }
+    const versionMatch = svg.match(/<!-- payload-version:(\d+) -->/);
+    const version = versionMatch?.[1] || "1";
+    const isByteString = version !== "1";
+
+    try {
+      const json = base64ToString(match[1], isByteString);
+      const encodedData = JSON.parse(json);
+      if (!("encoded" in encodedData)) {
+        // legacy, un-encoded scene JSON
+        if (
+          "type" in encodedData &&
+          encodedData.type === EXPORT_DATA_TYPES.excalidraw
+        ) {
+          return json;
+        }
+        throw new Error("FAILED");
+      }
+      return decode(encodedData);
+    } catch (error: any) {
+      console.error(error);
+      throw new Error("FAILED");
+    }
+  }
+  throw new Error("INVALID");
 };
 
 // calculate smallest area to fit the contents in
@@ -454,111 +558,3 @@ export const getExportSize = (
 
   return [width, height];
 };
-
-const getFontFaces = async (
-  elements: readonly ExcalidrawElement[],
-): Promise<string[]> => {
-  const fontFamilies = new Set<number>();
-  const charsPerFamily: Record<number, Set<string>> = {};
-
-  for (const element of elements) {
-    if (!isTextElement(element)) {
-      continue;
-    }
-
-    fontFamilies.add(element.fontFamily);
-
-    // gather unique codepoints only when inlining fonts
-    for (const char of element.originalText) {
-      if (!charsPerFamily[element.fontFamily]) {
-        charsPerFamily[element.fontFamily] = new Set();
-      }
-
-      charsPerFamily[element.fontFamily].add(char);
-    }
-  }
-
-  const orderedFamilies = Array.from(fontFamilies);
-
-  // for simplicity, assuming we have just one family with the CJK handdrawn fallback
-  const familyWithCJK = orderedFamilies.find((x) =>
-    getFontFamilyFallbacks(x).includes(CJK_HAND_DRAWN_FALLBACK_FONT),
-  );
-
-  if (familyWithCJK) {
-    const characters = getChars(charsPerFamily[familyWithCJK]);
-
-    if (containsCJK(characters)) {
-      const family = FONT_FAMILY_FALLBACKS[CJK_HAND_DRAWN_FALLBACK_FONT];
-
-      // adding the same characters to the CJK handrawn family
-      charsPerFamily[family] = new Set(characters);
-
-      // the order between the families and fallbacks is important, as fallbacks need to be defined first and in the reversed order
-      // so that they get overriden with the later defined font faces, i.e. in case they share some codepoints
-      orderedFamilies.unshift(
-        FONT_FAMILY_FALLBACKS[CJK_HAND_DRAWN_FALLBACK_FONT],
-      );
-    }
-  }
-
-  const iterator = fontFacesIterator(orderedFamilies, charsPerFamily);
-
-  // don't trigger hundreds of concurrent requests (each performing fetch, creating a worker, etc.),
-  // instead go three requests at a time, in a controlled manner, without completely blocking the main thread
-  // and avoiding potential issues such as rate limits
-  const concurrency = 3;
-  const fontFaces = await new PromisePool(iterator, concurrency).all();
-
-  // dedup just in case (i.e. could be the same font faces with 0 glyphs)
-  return Array.from(new Set(fontFaces));
-};
-
-function* fontFacesIterator(
-  families: Array<number>,
-  charsPerFamily: Record<number, Set<string>>,
-): Generator<Promise<void | readonly [number, string]>> {
-  for (const [familyIndex, family] of families.entries()) {
-    const { fontFaces, metadata } = Fonts.registered.get(family) ?? {};
-
-    if (!Array.isArray(fontFaces)) {
-      console.error(
-        `Couldn't find registered fonts for font-family "${family}"`,
-        Fonts.registered,
-      );
-      continue;
-    }
-
-    if (metadata?.local) {
-      // don't inline local fonts
-      continue;
-    }
-
-    for (const [fontFaceIndex, fontFace] of fontFaces.entries()) {
-      yield promiseTry(async () => {
-        try {
-          const characters = getChars(charsPerFamily[family]);
-          const fontFaceCSS = await fontFace.toCSS(characters);
-
-          if (!fontFaceCSS) {
-            return;
-          }
-
-          // giving a buffer of 10K font faces per family
-          const fontFaceOrder = familyIndex * 10_000 + fontFaceIndex;
-          const fontFaceTuple = [fontFaceOrder, fontFaceCSS] as const;
-
-          return fontFaceTuple;
-        } catch (error) {
-          console.error(
-            `Couldn't transform font-face to css for family "${fontFace.fontFace.family}"`,
-            error,
-          );
-        }
-      });
-    }
-  }
-}
-
-const getChars = (characterSet: Set<string>) =>
-  Array.from(characterSet).join("");

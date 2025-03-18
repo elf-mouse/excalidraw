@@ -1,26 +1,29 @@
-import { Fragment, memo, useEffect, useRef, useState } from "react";
-import { collapseDownIcon, upIcon, searchIcon } from "./icons";
-import { TextField } from "./TextField";
-import { Button } from "./Button";
-import { useApp, useExcalidrawSetAppState } from "./App";
-import { debounce } from "lodash";
-import type { AppClassProperties } from "../types";
-import { isTextElement, newTextElement } from "../element";
-import type { ExcalidrawTextElement } from "../element/types";
-import { measureText } from "../element/textElement";
-import { addEventListener, getFontString } from "../utils";
-import { KEYS } from "../keys";
+import { round } from "@excalidraw/math";
 import clsx from "clsx";
-import { atom, useAtom } from "jotai";
-import { jotaiScope } from "../jotai";
-import { t } from "../i18n";
-import { isElementCompletelyInViewport } from "../element/sizeHelpers";
-import { randomInteger } from "../random";
+import debounce from "lodash.debounce";
+import { Fragment, memo, useEffect, useRef, useState } from "react";
+
 import { CLASSES, EVENT } from "../constants";
+import { atom, useAtom } from "../editor-jotai";
+import { isTextElement, newTextElement } from "../element";
+import { isElementCompletelyInViewport } from "../element/sizeHelpers";
+
+import { measureText } from "../element/textMeasurements";
 import { useStable } from "../hooks/useStable";
+import { t } from "../i18n";
+import { KEYS } from "../keys";
+import { randomInteger } from "../random";
+import { addEventListener, getFontString } from "../utils";
+
+import { useApp, useExcalidrawSetAppState } from "./App";
+import { Button } from "./Button";
+import { TextField } from "./TextField";
+import { collapseDownIcon, upIcon, searchIcon } from "./icons";
 
 import "./SearchMenu.scss";
-import { round } from "../../math";
+
+import type { ExcalidrawTextElement } from "../element/types";
+import type { AppClassProperties } from "../types";
 
 const searchQueryAtom = atom<string>("");
 export const searchItemInFocusAtom = atom<number | null>(null);
@@ -58,7 +61,7 @@ export const SearchMenu = () => {
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const [inputValue, setInputValue] = useAtom(searchQueryAtom, jotaiScope);
+  const [inputValue, setInputValue] = useAtom(searchQueryAtom);
   const searchQuery = inputValue.trim() as SearchQuery;
 
   const [isSearching, setIsSearching] = useState(false);
@@ -70,10 +73,7 @@ export const SearchMenu = () => {
   const searchedQueryRef = useRef<SearchQuery | null>(null);
   const lastSceneNonceRef = useRef<number | undefined>(undefined);
 
-  const [focusIndex, setFocusIndex] = useAtom(
-    searchItemInFocusAtom,
-    jotaiScope,
-  );
+  const [focusIndex, setFocusIndex] = useAtom(searchItemInFocusAtom);
   const elementsMap = app.scene.getNonDeletedElementsMap();
 
   useEffect(() => {
@@ -294,6 +294,7 @@ export const SearchMenu = () => {
     // as well as to handle events before App ones
     return addEventListener(window, EVENT.KEYDOWN, eventHandler, {
       capture: true,
+      passive: false,
     });
   }, [setAppState, stableState, app]);
 
@@ -610,7 +611,6 @@ const getMatchedLines = (
         textToStart,
         getFontString(textElement),
         textElement.lineHeight,
-        true,
       );
 
       // measureText returns a non-zero width for the empty string
@@ -624,7 +624,6 @@ const getMatchedLines = (
           lineIndexRange.line,
           getFontString(textElement),
           textElement.lineHeight,
-          true,
         );
 
         const spaceToStart =

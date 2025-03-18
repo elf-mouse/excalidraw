@@ -1,13 +1,25 @@
+import clsx from "clsx";
 import { useState } from "react";
-import type { ActionManager } from "../actions/manager";
-import type {
-  ExcalidrawElement,
-  ExcalidrawElementType,
-  NonDeletedElementsMap,
-  NonDeletedSceneElementsMap,
-} from "../element/types";
+
+import { actionToggleZenMode } from "../actions";
+
+import { KEYS } from "../keys";
+import { CLASSES } from "../constants";
+import { alignActionsPredicate } from "../actions/actionAlign";
+import { trackEvent } from "../analytics";
+import { useTunnels } from "../context/tunnels";
+import {
+  shouldAllowVerticalAlign,
+  suppportsHorizontalAlign,
+} from "../element/textElement";
+import {
+  hasBoundTextElement,
+  isElbowArrow,
+  isImageElement,
+  isLinearElement,
+  isTextElement,
+} from "../element/typeChecks";
 import { t } from "../i18n";
-import { useDevice } from "./App";
 import {
   canChangeRoundness,
   canHaveArrowheads,
@@ -16,29 +28,16 @@ import {
   hasStrokeStyle,
   hasStrokeWidth,
 } from "../scene";
-import { SHAPES } from "../shapes";
-import type { AppClassProperties, AppProps, UIAppState, Zoom } from "../types";
-import { capitalizeString, isTransparent } from "../utils";
-import Stack from "./Stack";
-import { ToolButton } from "./ToolButton";
 import { hasStrokeColor, toolIsArrow } from "../scene/comparisons";
-import { trackEvent } from "../analytics";
-import {
-  hasBoundTextElement,
-  isElbowArrow,
-  isImageElement,
-  isLinearElement,
-  isTextElement,
-} from "../element/typeChecks";
-import clsx from "clsx";
-import { actionToggleZenMode } from "../actions";
-import { Tooltip } from "./Tooltip";
-import {
-  shouldAllowVerticalAlign,
-  suppportsHorizontalAlign,
-} from "../element/textElement";
+import { SHAPES } from "../shapes";
+import { capitalizeString, isTransparent } from "../utils";
 
 import "./Actions.scss";
+
+import { useDevice } from "./App";
+import Stack from "./Stack";
+import { ToolButton } from "./ToolButton";
+import { Tooltip } from "./Tooltip";
 import DropdownMenu from "./dropdownMenu/DropdownMenu";
 import {
   EmbedIcon,
@@ -48,9 +47,15 @@ import {
   laserPointerToolIcon,
   MagicIcon,
 } from "./icons";
-import { KEYS } from "../keys";
-import { useTunnels } from "../context/tunnels";
-import { CLASSES } from "../constants";
+
+import type {
+  ExcalidrawElement,
+  ExcalidrawElementType,
+  NonDeletedElementsMap,
+  NonDeletedSceneElementsMap,
+} from "../element/types";
+import type { AppClassProperties, AppProps, UIAppState, Zoom } from "../types";
+import type { ActionManager } from "../actions/manager";
 
 export const canChangeStrokeColor = (
   appState: UIAppState,
@@ -90,10 +95,12 @@ export const SelectedShapeActions = ({
   appState,
   elementsMap,
   renderAction,
+  app,
 }: {
   appState: UIAppState;
   elementsMap: NonDeletedElementsMap | NonDeletedSceneElementsMap;
   renderAction: ActionManager["renderAction"];
+  app: AppClassProperties;
 }) => {
   const targetElements = getTargetElements(elementsMap, appState);
 
@@ -132,6 +139,9 @@ export const SelectedShapeActions = ({
     !appState.croppingElementId &&
     targetElements.length === 1 &&
     isImageElement(targetElements[0]);
+
+  const showAlignActions =
+    !isSingleElementBoundContainer && alignActionsPredicate(appState, app);
 
   return (
     <div className="panelColumn">
@@ -200,7 +210,7 @@ export const SelectedShapeActions = ({
         </div>
       </fieldset>
 
-      {targetElements.length > 1 && !isSingleElementBoundContainer && (
+      {showAlignActions && !isSingleElementBoundContainer && (
         <fieldset>
           <legend>{t("labels.align")}</legend>
           <div className="buttonList">
@@ -347,25 +357,6 @@ export const ShapesSwitcher = ({
           title={t("toolBar.extraTools")}
         >
           {extraToolsIcon}
-          {app.props.aiEnabled !== false && (
-            <div
-              style={{
-                display: "inline-flex",
-                marginLeft: "auto",
-                padding: "2px 4px",
-                borderRadius: 6,
-                fontSize: 8,
-                fontFamily: "Cascadia, monospace",
-                position: "absolute",
-                background: "var(--color-promo)",
-                color: "var(--color-surface-lowest)",
-                bottom: 3,
-                right: 4,
-              }}
-            >
-              AI
-            </div>
-          )}
         </DropdownMenu.Trigger>
         <DropdownMenu.Content
           onClickOutside={() => setIsExtraToolsMenuOpen(false)}

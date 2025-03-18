@@ -1,13 +1,14 @@
-import { KEYS } from "../keys";
-import { register } from "./register";
-import { selectGroupsForSelectedElements } from "../groups";
-import { getNonDeletedElements, isTextElement } from "../element";
-import type { ExcalidrawElement } from "../element/types";
-import { isLinearElement } from "../element/typeChecks";
-import { LinearElementEditor } from "../element/linearElementEditor";
-import { excludeElementsInFramesFromSelection } from "../scene/selection";
 import { selectAllIcon } from "../components/icons";
-import { StoreAction } from "../store";
+import { getNonDeletedElements, isTextElement } from "../element";
+import { LinearElementEditor } from "../element/linearElementEditor";
+import { isLinearElement } from "../element/typeChecks";
+import { selectGroupsForSelectedElements } from "../groups";
+import { KEYS } from "../keys";
+import { CaptureUpdateAction } from "../store";
+
+import { register } from "./register";
+
+import type { ExcalidrawElement } from "../element/types";
 
 export const actionSelectAll = register({
   name: "selectAll",
@@ -20,17 +21,17 @@ export const actionSelectAll = register({
       return false;
     }
 
-    const selectedElementIds = excludeElementsInFramesFromSelection(
-      elements.filter(
+    const selectedElementIds = elements
+      .filter(
         (element) =>
           !element.isDeleted &&
           !(isTextElement(element) && element.containerId) &&
           !element.locked,
-      ),
-    ).reduce((map: Record<ExcalidrawElement["id"], true>, element) => {
-      map[element.id] = true;
-      return map;
-    }, {});
+      )
+      .reduce((map: Record<ExcalidrawElement["id"], true>, element) => {
+        map[element.id] = true;
+        return map;
+      }, {});
 
     return {
       appState: {
@@ -51,7 +52,7 @@ export const actionSelectAll = register({
             ? new LinearElementEditor(elements[0])
             : null,
       },
-      storeAction: StoreAction.CAPTURE,
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     };
   },
   keyTest: (event) => event[KEYS.CTRL_OR_CMD] && event.key === KEYS.A,

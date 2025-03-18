@@ -1,4 +1,7 @@
 import { degreesToRadians } from "./angle";
+import { PRECISION } from "./utils";
+import { vectorFromPoint, vectorScale } from "./vector";
+
 import type {
   LocalPoint,
   GlobalPoint,
@@ -6,8 +9,6 @@ import type {
   Degrees,
   Vector,
 } from "./types";
-import { PRECISION } from "./utils";
-import { vectorFromPoint, vectorScale } from "./vector";
 
 /**
  * Create a properly typed Point instance from the X and Y coordinates.
@@ -57,8 +58,9 @@ export function pointFromPair<Point extends GlobalPoint | LocalPoint>(
  */
 export function pointFromVector<P extends GlobalPoint | LocalPoint>(
   v: Vector,
+  offset: P = pointFrom(0, 0),
 ): P {
-  return v as unknown as P;
+  return pointFrom<P>(offset[0] + v[0], offset[1] + v[1]);
 }
 
 /**
@@ -161,36 +163,6 @@ export function pointCenter<P extends LocalPoint | GlobalPoint>(a: P, b: P): P {
 }
 
 /**
- * Add together two points by their coordinates like you'd apply a translation
- * to a point by a vector.
- *
- * @param a One point to act as a basis
- * @param b The other point to act like the vector to translate by
- * @returns
- */
-export function pointAdd<Point extends LocalPoint | GlobalPoint>(
-  a: Point,
-  b: Point,
-): Point {
-  return pointFrom(a[0] + b[0], a[1] + b[1]);
-}
-
-/**
- * Subtract a point from another point like you'd translate a point by an
- * invese vector.
- *
- * @param a The point to translate
- * @param b The point which will act like a vector
- * @returns The resulting point
- */
-export function pointSubtract<Point extends LocalPoint | GlobalPoint>(
-  a: Point,
-  b: Point,
-): Point {
-  return pointFrom(a[0] - b[0], a[1] - b[1]);
-}
-
-/**
  * Calculate the distance between two points.
  *
  * @param a First point
@@ -217,7 +189,10 @@ export function pointDistanceSq<P extends LocalPoint | GlobalPoint>(
   a: P,
   b: P,
 ): number {
-  return Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const xDiff = b[0] - a[0];
+  const yDiff = b[1] - a[1];
+
+  return xDiff * xDiff + yDiff * yDiff;
 }
 
 /**

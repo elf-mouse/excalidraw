@@ -1,17 +1,13 @@
+import { TEXT_AUTOWRAP_THRESHOLD } from "../constants";
+import { getGridPoint } from "../snapping";
+import { getFontString } from "../utils";
+
 import { updateBoundElements } from "./binding";
-import type { Bounds } from "./bounds";
 import { getCommonBounds } from "./bounds";
 import { mutateElement } from "./mutateElement";
 import { getPerfectElementSize } from "./sizeHelpers";
-import type { NonDeletedExcalidrawElement } from "./types";
-import type {
-  AppState,
-  NormalizedZoomValue,
-  NullableGridSize,
-  PointerDownState,
-} from "../types";
-import { getBoundTextElement, getMinTextElementWidth } from "./textElement";
-import type Scene from "../scene/Scene";
+import { getBoundTextElement } from "./textElement";
+import { getMinTextElementWidth } from "./textMeasurements";
 import {
   isArrowElement,
   isElbowArrow,
@@ -19,9 +15,16 @@ import {
   isImageElement,
   isTextElement,
 } from "./typeChecks";
-import { getFontString } from "../utils";
-import { TEXT_AUTOWRAP_THRESHOLD } from "../constants";
-import { getGridPoint } from "../snapping";
+
+import type { Bounds } from "./bounds";
+import type { ExcalidrawElement, NonDeletedExcalidrawElement } from "./types";
+import type Scene from "../scene/Scene";
+import type {
+  AppState,
+  NormalizedZoomValue,
+  NullableGridSize,
+  PointerDownState,
+} from "../types";
 
 export const dragSelectedElements = (
   pointerDownState: PointerDownState,
@@ -42,9 +45,20 @@ export const dragSelectedElements = (
     return;
   }
 
-  const selectedElements = _selectedElements.filter(
-    (el) => !(isElbowArrow(el) && el.startBinding && el.endBinding),
-  );
+  const selectedElements = _selectedElements.filter((element) => {
+    if (isElbowArrow(element) && element.startBinding && element.endBinding) {
+      const startElement = _selectedElements.find(
+        (el) => el.id === element.startBinding?.elementId,
+      );
+      const endElement = _selectedElements.find(
+        (el) => el.id === element.endBinding?.elementId,
+      );
+
+      return startElement && endElement;
+    }
+
+    return true;
+  });
 
   // we do not want a frame and its elements to be selected at the same time
   // but when it happens (due to some bug), we want to avoid updating element
@@ -64,13 +78,20 @@ export const dragSelectedElements = (
     }
   }
 
-  const commonBounds = getCommonBounds(
-    Array.from(elementsToUpdate).map(
-      (el) => pointerDownState.originalElements.get(el.id) ?? el,
-    ),
-  );
+  const origElements: ExcalidrawElement[] = [];
+
+  for (const element of elementsToUpdate) {
+    const origElement = pointerDownState.originalElements.get(element.id);
+    // if original element is not set (e.g. when you duplicate during a drag
+    // operation), exit to avoid undefined behavior
+    if (!origElement) {
+      return;
+    }
+    origElements.push(origElement);
+  }
+
   const adjustedOffset = calculateOffset(
-    commonBounds,
+    getCommonBounds(origElements),
     offset,
     snapOffset,
     gridSize,
@@ -78,10 +99,8 @@ export const dragSelectedElements = (
 
   elementsToUpdate.forEach((element) => {
     updateElementCoords(pointerDownState, element, adjustedOffset);
-    if (
+    if (!isArrowElement(element)) {
       // skip arrow labels since we calculate its position during render
-      !isArrowElement(element)
-    ) {
       const textElement = getBoundTextElement(
         element,
         scene.getNonDeletedElementsMap(),
@@ -89,10 +108,10 @@ export const dragSelectedElements = (
       if (textElement) {
         updateElementCoords(pointerDownState, textElement, adjustedOffset);
       }
+      updateBoundElements(element, scene.getElementsMapIncludingDeleted(), {
+        simultaneouslyUpdated: Array.from(elementsToUpdate),
+      });
     }
-    updateBoundElements(element, scene.getElementsMapIncludingDeleted(), {
-      simultaneouslyUpdated: Array.from(elementsToUpdate),
-    });
   });
 };
 

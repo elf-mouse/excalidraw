@@ -1,19 +1,27 @@
-import type { GlobalPoint, Radians } from "../../../math";
-import { pointFrom, pointRotateRads } from "../../../math";
+import { pointFrom, pointRotateRads } from "@excalidraw/math";
+
+import type { GlobalPoint, Radians } from "@excalidraw/math";
+
 import { MIME_TYPES } from "../../constants";
-import type { Bounds } from "../../element/bounds";
 import { getElementAbsoluteCoords } from "../../element/bounds";
 import { hitElementBoundingBox } from "../../element/collision";
+import { DEFAULT_LINK_SIZE } from "../../renderer/renderElement";
+
+import type { Bounds } from "../../element/bounds";
 import type {
   ElementsMap,
   NonDeletedExcalidrawElement,
 } from "../../element/types";
-import { DEFAULT_LINK_SIZE } from "../../renderer/renderElement";
 import type { AppState, UIAppState } from "../../types";
 
 export const EXTERNAL_LINK_IMG = document.createElement("img");
 EXTERNAL_LINK_IMG.src = `data:${MIME_TYPES.svg}, ${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1971c2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-external-link"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`,
+)}`;
+
+export const ELEMENT_LINK_IMG = document.createElement("img");
+ELEMENT_LINK_IMG.src = `data:${MIME_TYPES.svg}, ${encodeURIComponent(
+  `<svg  xmlns="http://www.w3.org/2000/svg"  width="16"  height="16"  viewBox="0 0 24 24"  fill="none"  stroke="#1971c2"  stroke-width="2"  stroke-linecap="round"  stroke-linejoin="round"  class="icon icon-tabler icons-tabler-outline icon-tabler-arrow-big-right-line"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M12 9v-3.586a1 1 0 0 1 1.707 -.707l6.586 6.586a1 1 0 0 1 0 1.414l-6.586 6.586a1 1 0 0 1 -1.707 -.707v-3.586h-6v-6h6z" /><path d="M3 9v6" /></svg>`,
 )}`;
 
 export const getLinkHandleFromCoords = (

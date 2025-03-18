@@ -1,13 +1,16 @@
-import React from "react";
 import {
   loginIcon,
   ExcalLogo,
   eyeIcon,
-} from "../../packages/excalidraw/components/icons";
-import type { Theme } from "../../packages/excalidraw/element/types";
-import { MainMenu } from "../../packages/excalidraw/index";
-import { isExcalidrawPlusSignedUser } from "../app_constants";
+} from "@excalidraw/excalidraw/components/icons";
+import { MainMenu } from "@excalidraw/excalidraw/index";
+import React from "react";
+
+import type { Theme } from "@excalidraw/excalidraw/element/types";
+
 import { LanguageList } from "../app-language/LanguageList";
+import { isExcalidrawPlusSignedUser } from "../app_constants";
+
 import { saveDebugState } from "./DebugCanvas";
 
 export const AppMainMenu: React.FC<{

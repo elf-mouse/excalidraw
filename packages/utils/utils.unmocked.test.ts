@@ -1,7 +1,10 @@
-import { decodePngMetadata, decodeSvgMetadata } from "../excalidraw/data/image";
-import type { ImportedDataState } from "../excalidraw/data/types";
-import * as utils from "../utils";
-import { API } from "../excalidraw/tests/helpers/api";
+import { decodePngMetadata } from "@excalidraw/excalidraw/data/image";
+import { decodeSvgBase64Payload } from "@excalidraw/excalidraw/scene/export";
+import { API } from "@excalidraw/excalidraw/tests/helpers/api";
+
+import type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
+
+import * as utils from "./index";
 
 // NOTE this test file is using the actual API, unmocked. Hence splitting it
 // from the other test file, because I couldn't figure out how to test
@@ -27,7 +30,7 @@ describe("embedding scene data", () => {
 
       const svg = svgNode.outerHTML;
 
-      const parsedString = await decodeSvgMetadata({ svg });
+      const parsedString = decodeSvgBase64Payload({ svg });
       const importedData: ImportedDataState = JSON.parse(parsedString);
 
       expect(sourceElements.map((x) => x.id)).toEqual(

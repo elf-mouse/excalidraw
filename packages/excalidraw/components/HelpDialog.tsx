@@ -1,13 +1,18 @@
 import React from "react";
-import { t } from "../i18n";
-import { KEYS } from "../keys";
-import { Dialog } from "./Dialog";
-import { getShortcutKey } from "../utils";
-import "./HelpDialog.scss";
-import { ExternalLinkIcon, GithubIcon, youtubeIcon } from "./icons";
+
+import { getShortcutFromShortcutName } from "../actions/shortcuts";
 import { probablySupportsClipboardBlob } from "../clipboard";
 import { isDarwin, isFirefox, isWindows } from "../constants";
-import { getShortcutFromShortcutName } from "../actions/shortcuts";
+import { t } from "../i18n";
+import { KEYS } from "../keys";
+import { getShortcutKey } from "../utils";
+
+import { Dialog } from "./Dialog";
+import { ExternalLinkIcon, GithubIcon, youtubeIcon } from "./icons";
+
+import "./HelpDialog.scss";
+
+import type { JSX } from "react";
 
 const Header = () => (
   <div className="HelpDialog__header">
@@ -22,7 +27,7 @@ const Header = () => (
     </a>
     <a
       className="HelpDialog__btn"
-      href="https://blog.excalidraw.com"
+      href="https://plus.excalidraw.com/blog"
       target="_blank"
       rel="noopener noreferrer"
     >

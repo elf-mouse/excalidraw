@@ -1,11 +1,5 @@
-import type {
-  ElementsMap,
-  ElementsMapOrArray,
-  ExcalidrawElement,
-  NonDeletedExcalidrawElement,
-} from "../element/types";
 import { getElementAbsoluteCoords, getElementBounds } from "../element";
-import type { AppState, InteractiveCanvasAppState } from "../types";
+import { isElementInViewport } from "../element/sizeHelpers";
 import { isBoundToContainer, isFrameLikeElement } from "../element/typeChecks";
 import {
   elementOverlapsWithFrame,
@@ -13,7 +7,14 @@ import {
   getFrameChildren,
 } from "../frame";
 import { isShallowEqual } from "../utils";
-import { isElementInViewport } from "../element/sizeHelpers";
+
+import type {
+  ElementsMap,
+  ElementsMapOrArray,
+  ExcalidrawElement,
+  NonDeletedExcalidrawElement,
+} from "../element/types";
+import type { AppState, InteractiveCanvasAppState } from "../types";
 
 /**
  * Frames and their containing elements are not to be selected at the same time.
@@ -183,10 +184,12 @@ export const getSelectedElements = (
     includeElementsInFrames?: boolean;
   },
 ) => {
+  const addedElements = new Set<ExcalidrawElement["id"]>();
   const selectedElements: ExcalidrawElement[] = [];
   for (const element of elements.values()) {
     if (appState.selectedElementIds[element.id]) {
       selectedElements.push(element);
+      addedElements.add(element.id);
       continue;
     }
     if (
@@ -195,6 +198,7 @@ export const getSelectedElements = (
       appState.selectedElementIds[element?.containerId]
     ) {
       selectedElements.push(element);
+      addedElements.add(element.id);
       continue;
     }
   }
@@ -203,8 +207,8 @@ export const getSelectedElements = (
     const elementsToInclude: ExcalidrawElement[] = [];
     selectedElements.forEach((element) => {
       if (isFrameLikeElement(element)) {
-        getFrameChildren(elements, element.id).forEach((e) =>
-          elementsToInclude.push(e),
+        getFrameChildren(elements, element.id).forEach(
+          (e) => !addedElements.has(e.id) && elementsToInclude.push(e),
         );
       }
       elementsToInclude.push(element);

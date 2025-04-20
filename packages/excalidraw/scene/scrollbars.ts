@@ -1,22 +1,23 @@
-import { getCommonBounds } from "../element";
-import { getLanguage } from "../i18n";
-import { getGlobalCSSVariable } from "../utils";
+import { getGlobalCSSVariable } from "@excalidraw/common";
 
-import type { ExcalidrawElement } from "../element/types";
+import { getCommonBounds } from "@excalidraw/element/bounds";
+
+import { getLanguage } from "../i18n";
+
 import type { InteractiveCanvasAppState } from "../types";
-import type { ScrollBars } from "./types";
+import type { RenderableElementsMap, ScrollBars } from "./types";
 
 export const SCROLLBAR_MARGIN = 4;
 export const SCROLLBAR_WIDTH = 6;
 export const SCROLLBAR_COLOR = "rgba(0,0,0,0.3)";
 
 export const getScrollBars = (
-  elements: readonly ExcalidrawElement[],
+  elements: RenderableElementsMap,
   viewportWidth: number,
   viewportHeight: number,
   appState: InteractiveCanvasAppState,
 ): ScrollBars => {
-  if (!elements.length) {
+  if (!elements.size) {
     return {
       horizontal: null,
       vertical: null,
